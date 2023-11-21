@@ -6,6 +6,7 @@ import streamlit as stl
 from openai import OpenAI
 from audiorecorder import audiorecorder
 import numpy as np
+import os
 
 # global variable(전역변수)
 client = None
@@ -73,6 +74,8 @@ def make_layout_side_bar():
     pass
 
 def make_layout_main_bottom():
+    # 보이스->질의 , 채팅데이터 구성 완료됐음을 아는 변수가 필요 (flag)
+    is_stt_complete_flag = False
     # 공통
     left, right = stl.columns(2)
     # 왼쪽 : 오디오 입력 및 재생
@@ -89,11 +92,32 @@ def make_layout_main_bottom():
             # 음원 파일에서 텍스트 추출 (STT)
             question = stt(audio_arr)
             print('question -> ', question)
+            # 채팅창에 내용을 넣기 위한 준비
+            now_str = datetime.now().strftime('%H:%M')
+            # 채팅창에 보일 내용 세팅( 전역 세션 상태 변수에 저장 )
+            stl.session_state['chat'] = stl.session_state['chat'] + [('user', now_str, question)]
+            # GPT 모델에 질의한 프롬프트
+            stl.session_state['msg'] = stl.session_state['msg'] + [
+                {
+                    'role':'user',
+                    'content':question
+                }
+            ]
+            # 오디오 저장
+            stl.session_state['audio_check'] = audio_arr
+            # STT 저장
+            is_stt_complete_flag = True
         pass
     # 오른쪽 : 채팅창
     with right:
         # 부제목
         stl.subheader('채팅창')
+        # STT가 완료된 상황에서만 진행
+        if is_stt_complete_flag:
+            # GPT에게 질의
+            response = gpt_proc(stl.session_state['msg'])
+            print('GPT 응답', response)
+            pass
         pass
     pass
 
@@ -136,16 +160,42 @@ def init_state():
 
 
 # --------------------------special func start---------------------------#
-def stt(audio_arr : ndarray) -> str:
-    # 데이터 전처리
-    
-    # GPT를 이용한 STT 처리
-    
-    # 텍스트 응답 
-    pass
+def stt(audio_arr):
+    try:
+        # 데이터 전처리
+        filename = 'input_voice.mp3'
+        # 파일기록
+        with open(filename, 'wb') as f:
+            f.write(audio_arr.tobytes())
+            
+        with open(filename, 'rb') as audio_file:   
+            # GPT를 이용한 STT 처리
+            transcript = client.audio.transcriptions.create(
+                model='whisper-1',
+                file= audio_file,
+                response_format='text'
+            )
+            
+        # 삭제 처리
+        os.remove(filename)
+        
+        # 텍스트 응답 
+        return transcript.strip()
+    except Exception as e:
+        print('STT 변환 오류', e)
+        return '[E-001] STT 변환 오류'
+    pass 
 def tts():
     pass
-def gpt_proc():
+def gpt_proc(prompt):
+    global client
+    global model_name
+    response = client.chat.completions.create(
+        model    = model_name,  
+        messages = prompt,      
+        #temperature = 0,           
+    )
+    return response.choices[0].message.content
     pass
 # --------------------------special func end---------------------------#
 
